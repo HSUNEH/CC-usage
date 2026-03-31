@@ -4,55 +4,36 @@
 
 ![CC-usage Screenshot](screenshots/cc-usage-dark.png)
 
-## Overview
+## Installation
 
-CC-usage는 Claude Code의 rate limit 데이터를 실시간으로 시각화하는 경량 데스크톱 앱입니다. Claude Code의 HUD(status line)가 이미 수집하는 데이터를 파일로 덤프하고, 앱이 이를 읽어 표시합니다. **추가 API 호출이나 토큰 소모 없이** 동작합니다.
+### Step 1. 앱 설치
 
-## Features
+```bash
+# 소스에서 빌드 (Rust 1.70+, Node.js 18+ 필요)
+git clone https://github.com/HSUNEH/CC-usage.git
+cd CC-usage
+npm install
+npm run tauri build
 
-- **5시간 세션 한도** — 사용률(%), 남은 시간, 리셋 시각 표시
-- **7일 주간 한도** — 사용률(%), 남은 일/시간, 리셋 요일+시각 표시
-- **실시간 갱신** — 5초마다 자동 업데이트, 1초 단위 카운트다운
-- **다크/라이트 모드** — 주황 테마 기반 모드 전환
-- **제로 토큰 소모** — HUD가 이미 받는 데이터를 파일로 저장할 뿐, 추가 API 호출 없음
-
-## How It Works
-
-```
-Claude Code (HUD) → rate-limits.json → CC-usage App
+# 빌드된 앱 실행
+open src-tauri/target/release/bundle/macos/CC-usage.app
 ```
 
-1. Claude Code의 HUD 스크립트가 `data.rate_limits`를 `~/.claude/cache/rate-limits.json`에 기록
-2. CC-usage 앱이 해당 파일을 5초마다 읽어 게이지바로 표시
-3. Claude Code가 실행 중일 때 자동으로 데이터가 갱신됨
+> 또는 [Releases](../../releases) 페이지에서 `.dmg`를 다운로드하세요.
 
-## Quick Start
+### Step 2. HUD 설정 (필수)
 
-### Prerequisites
+CC-usage는 Claude Code HUD가 생성하는 데이터 파일을 읽습니다.  
+현재 사용 중인 HUD 스크립트에 아래 코드를 추가하세요.
 
-- **Claude Code CLI** — [공식 사이트](https://claude.ai/code)에서 설치
-- **macOS** — Apple Silicon / Intel 지원
-- **Rust** 1.70+ (소스 빌드 시)
-- **Node.js** 18+
-
-### Installation
-
-1. [Releases](../../releases) 페이지에서 `.dmg` 다운로드
-2. DMG 열어서 Applications 폴더로 드래그
-3. 앱 실행
-
-### HUD 설정
-
-CC-usage가 데이터를 받으려면 Claude Code HUD 스크립트에 rate-limits 덤프 코드를 추가해야 합니다.
-
-현재 사용 중인 HUD 스크립트 (`~/.claude/settings.json`의 `statusLine.command`에서 확인)에 다음을 추가하세요:
+> HUD 스크립트 경로: `~/.claude/settings.json` → `statusLine.command`에서 확인
 
 ```javascript
-// 기존 import에 추가
+// 1. 기존 import에 추가
 import { writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 
-// main() 함수 내, console.log(output) 직전에 추가
+// 2. main() 함수 내, console.log() 직전에 추가
 try {
   var homeDir = process.env.HOME || process.env.USERPROFILE || "";
   var cacheDir = join(homeDir, ".claude", "cache");
@@ -69,30 +50,33 @@ try {
 } catch (_e) { /* ignore */ }
 ```
 
-## Build from Source
+### Step 3. 실행
 
-```bash
-# Clone
-git clone https://github.com/HSUNEH/CC-usage.git
-cd CC-usage
+1. Claude Code를 아무 터미널에서 실행 (HUD가 데이터를 자동 생성)
+2. CC-usage 앱 실행
+3. 끝!
 
-# Install dependencies
-npm install
+## Features
 
-# Development
-npm run tauri dev
+- **5시간 세션 한도** — 사용률(%), 남은 시간, 리셋 시각
+- **7일 주간 한도** — 사용률(%), 남은 일/시간, 리셋 요일+시각
+- **실시간 갱신** — 5초마다 자동 업데이트, 1초 카운트다운
+- **다크/라이트 모드** — 주황 테마 기반 전환
+- **제로 토큰 소모** — 추가 API 호출 없음
 
-# Production build
-npm run tauri build
+## How It Works
+
+```
+Claude Code (HUD) → ~/.claude/cache/rate-limits.json → CC-usage App
 ```
 
-빌드 결과물: `src-tauri/target/release/bundle/macos/CC-usage.app`
+HUD가 이미 받고 있는 `data.rate_limits`를 파일로 덤프할 뿐, 추가 API 호출이 없어 **토큰 소모 0**입니다.
 
 ## Tech Stack
 
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS
 - **Backend**: Rust (Tauri 2)
-- **Data Source**: Claude Code HUD (`~/.claude/cache/rate-limits.json`)
+- **Data**: Claude Code HUD → `rate-limits.json`
 
 ## Acknowledgments
 
