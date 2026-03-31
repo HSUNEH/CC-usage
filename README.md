@@ -10,9 +10,7 @@
 
 macOS 메뉴바에 5시간 세션의 남은 시간과 사용률이 항상 표시됩니다.
 
-```
-4h39m 5%
-```
+![menubar](screenshots/menubar.png)
 
 ## Installation
 
