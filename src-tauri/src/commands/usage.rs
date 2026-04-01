@@ -80,18 +80,14 @@ pub struct UsageApiResponse {
     pub updated_at: String,
 }
 
-#[command]
-pub async fn fetch_usage_api(
-    client: tauri::State<'_, HttpClient>,
-) -> Result<UsageApiResponse, String> {
-    // blocking I/O (Keychain 접근)를 별도 스레드에서 실행
+/// 프론트엔드 커맨드와 백그라운드 폴링 모두에서 사용하는 공용 fetch 함수
+pub async fn fetch_usage_data(client: &reqwest::Client) -> Result<UsageApiResponse, String> {
     let token = tokio::task::spawn_blocking(auth::get_oauth_token)
         .await
         .map_err(|e| format!("토큰 획득 태스크 실패: {}", e))?
         .map_err(|e| format!("token_error: {}", e))?;
 
     let resp = client
-        .0
         .get("https://api.anthropic.com/api/oauth/usage")
         .header("Authorization", format!("Bearer {}", token))
         .header("anthropic-beta", "oauth-2025-04-20")
@@ -123,4 +119,11 @@ pub async fn fetch_usage_api(
         source: "api".to_string(),
         updated_at: now,
     })
+}
+
+#[command]
+pub async fn fetch_usage_api(
+    client: tauri::State<'_, HttpClient>,
+) -> Result<UsageApiResponse, String> {
+    fetch_usage_data(&client.0).await
 }
