@@ -13,23 +13,22 @@ struct OAuthTokens {
     access_token: String,
 }
 
+const CLI_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
+
+/// Keychain 또는 credentials 파일에서 OAuth 토큰 읽기
 pub fn get_oauth_token() -> Result<String, String> {
-    // 1차: macOS Keychain에서 읽기
-    if let Ok(token) = read_from_keychain() {
+    if let Ok(token) = read_token_from_keychain(CLI_KEYCHAIN_SERVICE) {
         return Ok(token);
     }
-
-    // 2차: ~/.claude/.credentials.json fallback
     if let Ok(token) = read_from_credentials_file() {
         return Ok(token);
     }
-
-    Err("OAuth 토큰을 찾을 수 없습니다. Claude Code에 로그인되어 있는지 확인하세요.".into())
+    Err("OAuth 토큰을 찾을 수 없습니다. 터미널에서 claude 명령어로 로그인하세요.".into())
 }
 
-fn read_from_keychain() -> Result<String, String> {
+fn read_token_from_keychain(service: &str) -> Result<String, String> {
     let output = Command::new("/usr/bin/security")
-        .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+        .args(["find-generic-password", "-s", service, "-w"])
         .output()
         .map_err(|e| format!("Keychain 명령 실행 실패: {}", e))?;
 

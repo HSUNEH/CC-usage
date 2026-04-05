@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 interface UsageWindow {
@@ -33,7 +33,8 @@ type AppData =
   | { source: "api"; data: UsageApiResponse }
   | { source: "file"; data: RateLimitData };
 
-const REFRESH_INTERVAL = 30000;
+const FILE_INTERVAL = 30000;  // 파일: 30초마다
+const API_INTERVAL = 60000;   // API: 1분마다
 
 function ProgressBar({ pct }: { pct: number }) {
   return (
@@ -59,151 +60,43 @@ function ProgressBar({ pct }: { pct: number }) {
   );
 }
 
-type ErrorType = "no_token" | "auth_expired" | "network" | "unknown";
-
-function getErrorType(apiError: string, _fileError: string): ErrorType {
-  if (apiError.includes("auth_expired")) return "auth_expired";
-  if (apiError.includes("token_error") || apiError.includes("토큰을 찾을 수 없습니다"))
-    return "no_token";
-  if (apiError.includes("API 요청 실패")) return "network";
-  return "unknown";
-}
-
-function SetupScreen({
-  errorType,
-  onRetry,
-}: {
-  errorType: ErrorType;
-  onRetry: () => void;
-}) {
-  if (errorType === "no_token") {
-    return (
-      <div className="h-screen flex items-center justify-center p-6">
-        <div className="max-w-sm space-y-5">
-          <div className="space-y-1">
-            <h1 className="text-sm font-bold">초기 설정이 필요합니다</h1>
-            <p className="text-xs text-muted-foreground">
-              사용량 데이터를 가져오려면 Claude Code에 로그인되어 있어야 합니다.
-            </p>
-          </div>
-
-          <div className="space-y-3">
-            <div className="flex items-start space-x-3">
-              <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold mt-0.5">
-                1
-              </span>
-              <div>
-                <p className="text-xs font-semibold">Claude Code CLI 설치</p>
-                <code className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded block mt-1">
-                  npm install -g @anthropic-ai/claude-code
-                </code>
-              </div>
-            </div>
-
-            <div className="flex items-start space-x-3">
-              <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold mt-0.5">
-                2
-              </span>
-              <div>
-                <p className="text-xs font-semibold">터미널에서 로그인</p>
-                <code className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded block mt-1">
-                  claude
-                </code>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  브라우저에서 OAuth 인증이 진행됩니다.
-                  <br />
-                  로그인 완료 후 토큰이 Keychain에 저장됩니다.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start space-x-3">
-              <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold mt-0.5">
-                3
-              </span>
-              <div>
-                <p className="text-xs font-semibold">이 앱에서 새로고침</p>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  로그인 후 아래 버튼을 누르면 사용량이 표시됩니다.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <button
-            onClick={onRetry}
-            className="w-full text-xs px-3 py-2 rounded-md bg-[#D97757] text-white hover:opacity-90 transition-opacity font-medium"
-          >
-            연결 확인
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (errorType === "auth_expired") {
-    return (
-      <div className="h-screen flex items-center justify-center p-6">
-        <div className="max-w-sm space-y-5">
-          <div className="space-y-1">
-            <h1 className="text-sm font-bold">토큰이 만료되었습니다</h1>
-            <p className="text-xs text-muted-foreground">
-              OAuth 토큰이 만료되어 사용량 데이터를 가져올 수 없습니다.
-            </p>
-          </div>
-
-          <div className="space-y-3">
-            <div className="flex items-start space-x-3">
-              <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold mt-0.5">
-                1
-              </span>
-              <div>
-                <p className="text-xs font-semibold">터미널에서 다시 로그인</p>
-                <code className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded block mt-1">
-                  claude
-                </code>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  Claude Code를 실행하면 토큰이 자동으로 갱신됩니다.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start space-x-3">
-              <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold mt-0.5">
-                2
-              </span>
-              <div>
-                <p className="text-xs font-semibold">이 앱에서 새로고침</p>
-              </div>
-            </div>
-          </div>
-
-          <button
-            onClick={onRetry}
-            className="w-full text-xs px-3 py-2 rounded-md bg-[#D97757] text-white hover:opacity-90 transition-opacity font-medium"
-          >
-            다시 시도
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // network / unknown
+function SetupScreen({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="h-screen flex items-center justify-center p-6">
-      <div className="max-w-sm space-y-4">
+      <div className="max-w-sm space-y-5">
         <div className="space-y-1">
-          <h1 className="text-sm font-bold">연결할 수 없습니다</h1>
+          <h1 className="text-sm font-bold">초기 설정이 필요합니다</h1>
           <p className="text-xs text-muted-foreground">
-            {errorType === "network"
-              ? "네트워크 연결을 확인해주세요. Anthropic API 서버에 접근할 수 없습니다."
-              : "알 수 없는 오류가 발생했습니다. 잠시 후 다시 시도해주세요."}
+            사용량 데이터를 가져오려면 Claude Code에 로그인되어 있어야 합니다.
           </p>
         </div>
+
+        <div className="space-y-3">
+          <div className="flex items-start space-x-3">
+            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold mt-0.5">1</span>
+            <div>
+              <p className="text-xs font-semibold">터미널에서 로그인</p>
+              <code className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded block mt-1">claude</code>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Claude Code를 실행하면 브라우저에서 인증이 진행됩니다.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start space-x-3">
+            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold mt-0.5">2</span>
+            <div>
+              <p className="text-xs font-semibold">이 앱에서 다시 시도</p>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                로그인 완료 후 아래 버튼을 누르면 사용량이 표시됩니다.
+              </p>
+            </div>
+          </div>
+        </div>
+
         <button
           onClick={onRetry}
-          className="w-full text-xs px-3 py-2 rounded-md bg-muted hover:bg-muted/80 transition-colors font-medium"
+          className="w-full text-xs px-3 py-2 rounded-md bg-[#D97757] text-white hover:opacity-90 transition-opacity font-medium"
         >
           다시 시도
         </button>
@@ -213,8 +106,9 @@ function SetupScreen({
 }
 
 function App() {
-  const [appData, setAppData] = useState<AppData | null>(null);
-  const [error, setError] = useState<ErrorType | null>(null);
+  const appDataRef = useRef<AppData | null>(null);
+  const [displayData, setDisplayData] = useState<AppData | null>(null);
+  const [error, setError] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [isDark, setIsDark] = useState(true);
 
@@ -229,47 +123,65 @@ function App() {
     invoke("update_tray", { pct, resetsAt }).catch(() => {});
   };
 
-  const loadData = useCallback(async () => {
-    let apiErrorMsg = "";
-
-    // 1차: OAuth API 직접 호출
-    try {
-      const result = await invoke<UsageApiResponse>("fetch_usage_api");
-      setAppData({ source: "api", data: result });
-      setError(null);
-      updateTray(result.five_hour?.utilization ?? 0, result.five_hour?.resets_at ?? null);
-      return;
-    } catch (apiErr) {
-      apiErrorMsg = String(apiErr);
-      if (apiErrorMsg.includes("auth_expired")) {
-        setError("auth_expired");
-        return;
-      }
-      console.warn("fetch_usage_api failed, falling back to file:", apiErrorMsg);
-    }
-
-    // 2차: 파일 기반 fallback
+  // 파일 읽기 (30초마다)
+  const loadFile = useCallback(async () => {
     try {
       const result = await invoke<RateLimitData>("read_rate_limits");
-      setAppData({ source: "file", data: result });
-      setError(null);
+      const fivePct = result.rate_limits?.five_hour?.used_percentage ?? 0;
+      const sevenPct = result.rate_limits?.seven_day?.used_percentage ?? 0;
+      // 새 세션 시작 시 0%로 초기화되는 경우, 기존 데이터가 있으면 무시
+      if (fivePct === 0 && sevenPct === 0 && appDataRef.current) return;
+      // API 데이터보다 파일이 더 최신이면 갱신
+      if (appDataRef.current?.source === "api") {
+        const apiTime = new Date(appDataRef.current.data.updated_at).getTime();
+        const fileTime = new Date(result.updated_at).getTime();
+        if (fileTime <= apiTime) return;
+      }
+      const newData: AppData = { source: "file", data: result };
+      appDataRef.current = newData;
+      setDisplayData(newData);
+      setError(false);
       const fh = result.rate_limits?.five_hour;
       const resetRaw = fh?.resets_at ?? fh?.reset_at;
       const resetsAt = resetRaw
         ? new Date(resetRaw < 1e12 ? resetRaw * 1000 : resetRaw).toISOString()
         : null;
       updateTray(fh?.used_percentage ?? 0, resetsAt);
-    } catch (fileErr) {
-      const fileErrorMsg = String(fileErr);
-      setError(getErrorType(apiErrorMsg, fileErrorMsg));
+    } catch {
+      // 파일 없으면 무시
     }
   }, []);
 
+  // API 호출 (1분마다)
+  const loadApi = useCallback(async () => {
+    try {
+      const result = await invoke<UsageApiResponse>("fetch_usage_api");
+      const newData: AppData = { source: "api", data: result };
+      appDataRef.current = newData;
+      setDisplayData(newData);
+      setError(false);
+      updateTray(result.five_hour?.utilization ?? 0, result.five_hour?.resets_at ?? null);
+    } catch {
+      if (appDataRef.current) return; // 이전 데이터 유지
+      setError(true);
+    }
+  }, []);
+
+  const refresh = useCallback(async () => {
+    await loadApi();
+    await loadFile();
+  }, [loadApi, loadFile]);
+
   useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, REFRESH_INTERVAL);
-    return () => clearInterval(interval);
-  }, [loadData]);
+    loadFile();
+    loadApi();
+    const fileTimer = setInterval(loadFile, FILE_INTERVAL);
+    const apiTimer = setInterval(loadApi, API_INTERVAL);
+    return () => {
+      clearInterval(fileTimer);
+      clearInterval(apiTimer);
+    };
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -322,10 +234,10 @@ function App() {
   };
 
   if (error) {
-    return <SetupScreen errorType={error} onRetry={loadData} />;
+    return <SetupScreen onRetry={refresh} />;
   }
 
-  if (!appData) {
+  if (!displayData) {
     return (
       <div className="h-screen flex items-center justify-center">
         <div className="text-center space-y-2">
@@ -336,7 +248,6 @@ function App() {
     );
   }
 
-  // 데이터 소스에 따라 값 추출
   let sessionPct: number;
   let sessionReset: number | null;
   let sevenDayPct: number;
@@ -344,8 +255,8 @@ function App() {
   let updatedAt: string;
   let dataSource: string;
 
-  if (appData.source === "api") {
-    const d = appData.data;
+  if (displayData.source === "api") {
+    const d = displayData.data;
     sessionPct = Math.min(100, Math.max(0, Math.round(d.five_hour?.utilization ?? 0)));
     sessionReset = getResetMs(d.five_hour?.resets_at);
     sevenDayPct = Math.min(100, Math.max(0, Math.round(d.seven_day?.utilization ?? 0)));
@@ -353,7 +264,7 @@ function App() {
     updatedAt = d.updated_at;
     dataSource = "API";
   } else {
-    const d = appData.data;
+    const d = displayData.data;
     const fiveHour = d.rate_limits?.five_hour;
     sessionPct = Math.round(fiveHour?.used_percentage ?? 0);
     sessionReset = getResetMs(fiveHour?.resets_at ?? fiveHour?.reset_at);
@@ -369,7 +280,6 @@ function App() {
       <h1 className="text-base font-bold mb-5">플랜 사용량 한도</h1>
 
       <div className="space-y-5">
-        {/* Current Session (5h) */}
         <section>
           <h2 className="text-sm font-semibold mb-0.5">현재 세션</h2>
           <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
@@ -381,7 +291,6 @@ function App() {
 
         <hr className="border-border" />
 
-        {/* 7-Day Limit */}
         <section>
           <h2 className="text-sm font-semibold mb-0.5">주간 한도</h2>
           <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
@@ -393,7 +302,6 @@ function App() {
 
         <hr className="border-border" />
 
-        {/* Last updated + source */}
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>마지막 업데이트: {formatUpdated(updatedAt)}</span>
           <span
@@ -407,17 +315,15 @@ function App() {
           </span>
         </div>
 
-        {/* Bottom buttons */}
         <div className="flex items-center justify-between pt-2">
           <button
             onClick={toggleTheme}
             className="flex items-center space-x-1.5 text-xs px-3 py-1.5 rounded-md bg-muted hover:opacity-80 transition-opacity"
           >
             <span>{isDark ? "☀️" : "🌙"}</span>
-            <span>{isDark ? "라이트 모드" : "다크 모드"}</span>
           </button>
           <button
-            onClick={loadData}
+            onClick={refresh}
             className="flex items-center space-x-1.5 text-xs px-3 py-1.5 rounded-md bg-muted hover:opacity-80 transition-opacity"
           >
             <span>↻</span>

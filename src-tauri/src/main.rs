@@ -3,10 +3,10 @@
 
 mod commands;
 
-use commands::usage::{read_rate_limits, fetch_usage_api, fetch_usage_data, HttpClient};
+use commands::usage::{fetch_usage_api, fetch_usage_data, read_rate_limits, HttpClient};
+use std::time::Duration;
 use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
-use std::time::Duration;
 
 fn format_tray_title(pct: f64, resets_at: Option<&str>) -> String {
     let remaining = if let Some(reset_str) = resets_at {
@@ -48,7 +48,11 @@ fn main() {
             let _tray = TrayIconBuilder::with_id("cc-usage-tray")
                 .title("- 0%")
                 .tooltip("CC-usage")
-                .icon(tauri::image::Image::new(include_bytes!("../icons/tray-claude.rgba"), 44, 44))
+                .icon(tauri::image::Image::new(
+                    include_bytes!("../icons/tray-claude.rgba"),
+                    44,
+                    44,
+                ))
                 .icon_as_template(true)
                 .on_tray_icon_event(|tray, event| {
                     if let tauri::tray::TrayIconEvent::Click { .. } = event {
@@ -70,20 +74,22 @@ fn main() {
                 }
             });
 
-            // 백그라운드 폴링: 창이 숨겨져 있어도 트레이 타이틀 업데이트
+            // 백그라운드 폴링: 1분마다 트레이 타이틀 업데이트
             let app_handle = app.handle().clone();
             let client = app.state::<HttpClient>().0.clone();
             tauri::async_runtime::spawn(async move {
                 loop {
-                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    tokio::time::sleep(Duration::from_secs(60)).await;
 
-                    // 1차: OAuth API
+                    // 1차: Haiku API (헤더에서 rate limit 추출)
                     if let Ok(data) = fetch_usage_data(&client).await {
-                        let pct = data.five_hour.as_ref()
+                        let pct = data
+                            .five_hour
+                            .as_ref()
                             .and_then(|w| w.utilization)
                             .unwrap_or(0.0);
-                        let resets_at = data.five_hour.as_ref()
-                            .and_then(|w| w.resets_at.clone());
+                        let resets_at =
+                            data.five_hour.as_ref().and_then(|w| w.resets_at.clone());
                         let title = format_tray_title(pct, resets_at.as_deref());
                         if let Some(tray) = app_handle.tray_by_id("cc-usage-tray") {
                             let _ = tray.set_title(Some(&title));
@@ -95,16 +101,19 @@ fn main() {
                     if let Ok(data) = read_rate_limits() {
                         if let Some(rl) = &data.rate_limits {
                             if let Some(fh) = rl.get("five_hour") {
-                                let pct = fh.get("used_percentage")
+                                let pct = fh
+                                    .get("used_percentage")
                                     .and_then(|v| v.as_f64())
                                     .unwrap_or(0.0);
-                                let resets_at = fh.get("resets_at")
+                                let resets_at = fh
+                                    .get("resets_at")
                                     .or_else(|| fh.get("reset_at"))
                                     .and_then(|v| {
                                         if let Some(s) = v.as_str() {
                                             Some(s.to_string())
                                         } else if let Some(n) = v.as_f64() {
-                                            let secs = if n < 1e12 { n as i64 } else { (n / 1000.0) as i64 };
+                                            let secs =
+                                                if n < 1e12 { n as i64 } else { (n / 1000.0) as i64 };
                                             chrono::DateTime::from_timestamp(secs, 0)
                                                 .map(|dt| dt.to_rfc3339())
                                         } else {

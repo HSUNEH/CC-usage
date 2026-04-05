@@ -60,15 +60,6 @@ pub struct ExtraUsage {
     pub utilization: Option<f64>,
 }
 
-#[derive(Debug, Deserialize)]
-struct ApiResponse {
-    five_hour: Option<UsageWindow>,
-    seven_day: Option<UsageWindow>,
-    seven_day_sonnet: Option<UsageWindow>,
-    seven_day_opus: Option<UsageWindow>,
-    extra_usage: Option<ExtraUsage>,
-}
-
 #[derive(Debug, Serialize, Clone)]
 pub struct UsageApiResponse {
     pub five_hour: Option<UsageWindow>,
@@ -80,17 +71,26 @@ pub struct UsageApiResponse {
     pub updated_at: String,
 }
 
-/// 프론트엔드 커맨드와 백그라운드 폴링 모두에서 사용하는 공용 fetch 함수
+/// Haiku에 최소 요청을 보내고 응답 헤더에서 rate limit 정보를 추출
 pub async fn fetch_usage_data(client: &reqwest::Client) -> Result<UsageApiResponse, String> {
     let token = tokio::task::spawn_blocking(auth::get_oauth_token)
         .await
         .map_err(|e| format!("토큰 획득 태스크 실패: {}", e))?
         .map_err(|e| format!("token_error: {}", e))?;
 
+    let body = serde_json::json!({
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": "."}]
+    });
+
     let resp = client
-        .get("https://api.anthropic.com/api/oauth/usage")
+        .post("https://api.anthropic.com/v1/messages")
         .header("Authorization", format!("Bearer {}", token))
+        .header("anthropic-version", "2023-06-01")
         .header("anthropic-beta", "oauth-2025-04-20")
+        .header("content-type", "application/json")
+        .body(body.to_string())
         .send()
         .await
         .map_err(|e| format!("API 요청 실패: {}", e))?;
@@ -99,23 +99,49 @@ pub async fn fetch_usage_data(client: &reqwest::Client) -> Result<UsageApiRespon
     if status == reqwest::StatusCode::UNAUTHORIZED {
         return Err("auth_expired: OAuth 토큰이 만료되었습니다. Claude Code에 다시 로그인하세요.".into());
     }
-    if !status.is_success() {
-        return Err(format!("api_error: HTTP {}", status.as_u16()));
-    }
 
-    let api_data: ApiResponse = resp
-        .json()
-        .await
-        .map_err(|e| format!("API 응답 파싱 실패: {}", e))?;
+    let headers = resp.headers().clone();
+
+    // 헤더에서 rate limit 정보 추출 (응답 본문은 무시)
+    let _ = resp.text().await;
+
+    let get_header = |name: &str| -> Option<String> {
+        headers.get(name).and_then(|v| v.to_str().ok()).map(|s| s.to_string())
+    };
+
+    let parse_utilization = |name: &str| -> Option<f64> {
+        get_header(name).and_then(|v| v.parse::<f64>().ok()).map(|v| v * 100.0)
+    };
+
+    let parse_reset = |name: &str| -> Option<String> {
+        get_header(name)
+            .and_then(|v| v.parse::<i64>().ok())
+            .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
+            .map(|dt| dt.to_rfc3339())
+    };
+
+    let five_hour_util = parse_utilization("anthropic-ratelimit-unified-5h-utilization");
+    let seven_day_util = parse_utilization("anthropic-ratelimit-unified-7d-utilization");
+
+    // 헤더가 전혀 없으면 에러
+    if five_hour_util.is_none() && seven_day_util.is_none() {
+        return Err(format!("api_error: rate limit 헤더 없음 (HTTP {})", status.as_u16()));
+    }
 
     let now = chrono::Utc::now().to_rfc3339();
 
     Ok(UsageApiResponse {
-        five_hour: api_data.five_hour,
-        seven_day: api_data.seven_day,
-        seven_day_sonnet: api_data.seven_day_sonnet,
-        seven_day_opus: api_data.seven_day_opus,
-        extra_usage: api_data.extra_usage,
+        five_hour: Some(UsageWindow {
+            utilization: five_hour_util,
+            resets_at: parse_reset("anthropic-ratelimit-unified-5h-reset"),
+        }),
+        seven_day: Some(UsageWindow {
+            utilization: seven_day_util,
+            resets_at: parse_reset("anthropic-ratelimit-unified-7d-reset"),
+        }),
+        seven_day_sonnet: None,
+        seven_day_opus: None,
+        extra_usage: None,
         source: "api".to_string(),
         updated_at: now,
     })
