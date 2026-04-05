@@ -37,7 +37,7 @@ open src-tauri/target/release/bundle/macos/CC-usage.app
 
 ### Claude Code 로그인 (최초 1회)
 
-앱이 Anthropic OAuth API를 통해 사용량을 가져오므로, Claude Code에 로그인되어 있어야 합니다.
+앱이 Anthropic API를 통해 사용량을 가져오므로, Claude Code에 로그인되어 있어야 합니다.
 
 ```bash
 npm install -g @anthropic-ai/claude-code
@@ -48,24 +48,26 @@ claude
 
 ## Features
 
-- **OAuth API 직접 호출** — CLI를 실행하지 않아도 정확한 사용량 표시
+- **Haiku API 기반 조회** — Haiku에 최소 요청(9토큰)을 보내고 응답 헤더에서 정확한 rate limit 정보 추출
+- **1분마다 자동 갱신** — CLI를 실행하지 않아도 사용량이 업데이트됨
+- **파일 실시간 추적** — CLI 사용 중이면 30초마다 파일 변경 감지하여 더 빠른 업데이트
 - **웹 사용분 반영** — claude.ai에서 사용한 양도 실시간 반영
 - **메뉴바 표시** — 5시간 세션 남은 시간 + 사용률이 메뉴바에 항상 표시
 - **5시간 세션 한도** — 사용률(%), 남은 시간, 리셋 시각
 - **7일 주간 한도** — 사용률(%), 남은 일/시간, 리셋 요일+시각
-- **자동 갱신** — 30초마다 자동 업데이트
-- **자동 fallback** — API 실패 시 기존 파일 기반 방식으로 자동 전환
-- **셋업 가이드** — 첫 사용자를 위한 단계별 안내 화면
+- **0% 초기화 방어** — 새 CLI 세션 시작 시 파일이 0%로 리셋되어도 기존 데이터 유지
 - **다크/라이트 모드** — 주황 테마 기반 전환
 
 ## How It Works
 
 ```
-CC-usage App → Anthropic OAuth API (30초마다)
-                 ↓
-            5h/7d 사용량 표시
-                 ↓ (API 실패 시)
-            ~/.claude/cache/rate-limits.json fallback
+CC-usage App
+  ├─ Haiku Messages API (1분마다)
+  │    POST /v1/messages → "." (9토큰)
+  │    ← 응답 헤더에서 utilization % 추출
+  │
+  └─ rate-limits.json (30초마다)
+       CLI 실행 중이면 파일 변경 감지하여 더 빠른 업데이트
 ```
 
 OAuth 토큰은 macOS Keychain에서 읽습니다 (Claude Code 로그인 시 자동 저장됨).
@@ -75,7 +77,7 @@ OAuth 토큰은 macOS Keychain에서 읽습니다 (Claude Code 로그인 시 자
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS
 - **Backend**: Rust (Tauri 2) + reqwest
 - **Auth**: OAuth token (macOS Keychain)
-- **Data**: Anthropic Usage API (`/api/oauth/usage`)
+- **Data**: Anthropic Messages API 응답 헤더 (`anthropic-ratelimit-unified-*`)
 
 ## Acknowledgments
 
