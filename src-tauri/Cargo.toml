@@ -1,6 +1,6 @@
 [package]
 name = "cc-usage"
-version = "0.1.0"
+version = "1.1.0"
 description = "CC-usage - Claude Code Usage Monitor"
 authors = ["zollicoff"]
 license = "AGPL-3.0"
