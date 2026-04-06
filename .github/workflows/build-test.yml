@@ -25,12 +25,6 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - name: Linux
-            os: ubuntu-latest
-            rust-target: x86_64-unknown-linux-gnu
-          - name: Windows
-            os: windows-latest
-            rust-target: x86_64-pc-windows-msvc
           - name: macOS
             os: macos-latest
             rust-target: x86_64-apple-darwin
@@ -43,24 +37,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      # Install system dependencies for Linux
-      - name: Install Linux dependencies
-        if: matrix.platform.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libglib2.0-dev \
-            libjavascriptcoregtk-4.1-dev \
-            libsoup-3.0-dev \
-            libxdo-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev
 
       # Setup Rust with caching
       - name: Setup Rust
@@ -155,8 +131,6 @@ jobs:
             
             | Platform | Status |
             |----------|--------|
-            | Linux    | ${{ contains(needs.build-test.result, 'success') && '✅' || '❌' }} |
-            | Windows  | ${{ contains(needs.build-test.result, 'success') && '✅' || '❌' }} |
             | macOS    | ${{ contains(needs.build-test.result, 'success') && '✅' || '❌' }} |
             
             [View full workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
