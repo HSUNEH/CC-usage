@@ -1,4 +1,4 @@
-# CC-usage
+# CC-usage v1.1.0
 
 **Claude Code 사용량을 실시간으로 모니터링하는 macOS 데스크톱 앱**
 
