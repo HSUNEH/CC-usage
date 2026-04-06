@@ -29,10 +29,7 @@ Claude Code에 다음과 같이 입력하세요:
 https://github.com/HSUNEH/CC-usage 설치해줘
 ```
 
-### 수동 설치
-
-<details>
-<summary>직접 빌드하기</summary>
+### 소스에서 빌드
 
 ```bash
 # Rust 1.70+, Node.js 18+ 필요
@@ -43,8 +40,6 @@ npm run tauri build
 
 open src-tauri/target/release/bundle/macos/CC-usage.app
 ```
-
-</details>
 
 브라우저에서 OAuth 인증 완료 후, 앱을 새로고침하면 사용량이 표시됩니다.
 
