@@ -14,16 +14,25 @@ macOS 메뉴바에 5시간 세션의 남은 시간과 사용률이 항상 표시
 
 ## Installation
 
-### 방법 1: 다운로드 (권장)
+### 1. Claude Code 설치 및 로그인
 
-1. [Releases](../../releases) 페이지에서 `CC-usage.zip` 다운로드
-2. 압축 풀고 `CC-usage.app`을 Applications로 이동
-3. 처음 열 때 "손상되었습니다" 경고가 뜨면:
-   ```bash
-   xattr -cr /Applications/CC-usage.app
-   ```
+```bash
+npm install -g @anthropic-ai/claude-code
+claude
+```
 
-### 방법 2: 소스에서 빌드
+### 2. Claude Code에서 설치
+
+Claude Code에 다음과 같이 입력하세요:
+
+```
+https://github.com/HSUNEH/CC-usage 설치해줘
+```
+
+### 수동 설치
+
+<details>
+<summary>직접 빌드하기</summary>
 
 ```bash
 # Rust 1.70+, Node.js 18+ 필요
@@ -35,14 +44,7 @@ npm run tauri build
 open src-tauri/target/release/bundle/macos/CC-usage.app
 ```
 
-### Claude Code 로그인 (최초 1회)
-
-앱이 Anthropic API를 통해 사용량을 가져오므로, Claude Code에 로그인되어 있어야 합니다.
-
-```bash
-npm install -g @anthropic-ai/claude-code
-claude
-```
+</details>
 
 브라우저에서 OAuth 인증 완료 후, 앱을 새로고침하면 사용량이 표시됩니다.
 
