@@ -188,6 +188,18 @@ function App() {
     return () => clearInterval(timer);
   }, []);
 
+  // 화면 복귀(슬립 해제) 시 즉시 API 호출
+  useEffect(() => {
+    const onWake = () => {
+      if (!document.hidden) {
+        loadApi();
+        loadFile();
+      }
+    };
+    document.addEventListener("visibilitychange", onWake);
+    return () => document.removeEventListener("visibilitychange", onWake);
+  }, [loadApi, loadFile]);
+
   const getResetMs = (value: string | number | null | undefined): number | null => {
     if (value == null) return null;
     if (typeof value === "string") {
