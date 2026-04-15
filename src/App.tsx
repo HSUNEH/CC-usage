@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { AuthModal, type AuthStatus } from "./components/AuthModal";
+import { LogoutButton } from "./components/LogoutButton";
 
 interface UsageWindow {
   utilization: number | null;
@@ -33,8 +36,49 @@ type AppData =
   | { source: "api"; data: UsageApiResponse }
   | { source: "file"; data: RateLimitData };
 
-const FILE_INTERVAL = 30000;  // 파일: 30초마다
-const API_INTERVAL = 60000;   // API: 1분마다
+interface UsageEnvelope {
+  seq: number;
+  data: UsageApiResponse;
+  received_at: string;
+}
+
+type UsageError =
+  | { type: "TokenMissing" }
+  | { type: "TokenExpired" }
+  | { type: "NetworkError"; data: string }
+  | { type: "RateLimitHeaderMissing"; data: { status: number } }
+  | { type: "UnexpectedStatus"; data: { status: number; body_snippet: string } }
+  | { type: "RefreshRateLimited" };
+
+type ErrorState =
+  | { kind: "token_missing" }
+  | { kind: "token_expired" }
+  | { kind: "network"; detail: string }
+  | { kind: "api"; detail: string };
+
+type AuthState = "loading" | "logged_out" | "logged_in";
+
+function mapError(err: any): ErrorState {
+  const e = err as UsageError;
+  if (typeof e === "string") {
+    if (/token|auth/i.test(e)) return { kind: "token_missing" };
+    if (/network|timeout|connect/i.test(e)) return { kind: "network", detail: e };
+    return { kind: "api", detail: e };
+  }
+  switch (e.type) {
+    case "TokenMissing": return { kind: "token_missing" };
+    case "TokenExpired": return { kind: "token_expired" };
+    case "NetworkError": return { kind: "network", detail: e.data };
+    case "RateLimitHeaderMissing":
+      return { kind: "api", detail: `rate limit header missing (HTTP ${e.data.status})` };
+    case "UnexpectedStatus":
+      return { kind: "api", detail: `HTTP ${e.data.status}: ${e.data.body_snippet}` };
+    case "RefreshRateLimited":
+      return { kind: "api", detail: "refresh rate limited" };
+  }
+}
+
+const FILE_INTERVAL = 30000;
 
 function ProgressBar({ pct }: { pct: number }) {
   return (
@@ -60,57 +104,58 @@ function ProgressBar({ pct }: { pct: number }) {
   );
 }
 
-function SetupScreen({ onRetry }: { onRetry: () => void }) {
+
+function ErrorBanner({ state, onCopy }: { state: ErrorState; onCopy: () => void }) {
+  const isNetwork = state.kind === "network";
   return (
-    <div className="h-screen flex items-center justify-center p-6">
-      <div className="max-w-sm space-y-5">
-        <div className="space-y-1">
-          <h1 className="text-sm font-bold">초기 설정이 필요합니다</h1>
-          <p className="text-xs text-muted-foreground">
-            사용량 데이터를 가져오려면 Claude Code에 로그인되어 있어야 합니다.
-          </p>
-        </div>
-
-        <div className="space-y-3">
-          <div className="flex items-start space-x-3">
-            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold mt-0.5">1</span>
-            <div>
-              <p className="text-xs font-semibold">터미널에서 로그인</p>
-              <code className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded block mt-1">claude</code>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Claude Code를 실행하면 브라우저에서 인증이 진행됩니다.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-start space-x-3">
-            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold mt-0.5">2</span>
-            <div>
-              <p className="text-xs font-semibold">이 앱에서 다시 시도</p>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                로그인 완료 후 아래 버튼을 누르면 사용량이 표시됩니다.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <button
-          onClick={onRetry}
-          className="w-full text-xs px-3 py-2 rounded-md bg-[#D97757] text-white hover:opacity-90 transition-opacity font-medium"
-        >
-          다시 시도
-        </button>
-      </div>
+    <div
+      className={`flex items-center justify-between px-3 py-2 text-xs rounded-md mb-3 ${
+        isNetwork
+          ? "bg-yellow-500/20 text-yellow-400"
+          : "bg-red-500/20 text-red-400"
+      }`}
+    >
+      <span>{isNetwork ? "네트워크 오류" : "API 응답 이상"}</span>
+      <button onClick={onCopy} className="underline opacity-70 hover:opacity-100">
+        복사
+      </button>
     </div>
   );
 }
 
 function App() {
   const appDataRef = useRef<AppData | null>(null);
+  const lastSeqRef = useRef(0);
   const [displayData, setDisplayData] = useState<AppData | null>(null);
-  const [error, setError] = useState(false);
+  const [errorState, setErrorState] = useState<ErrorState | null>(null);
   const [now, setNow] = useState(Date.now());
   const [isDark, setIsDark] = useState(true);
+
+  // Auth state
+  const [authState, setAuthState] = useState<AuthState>("loading");
+  const [firstRun, setFirstRun] = useState(false);
+  const authStateRef = useRef<AuthState>("loading");
+  useEffect(() => {
+    authStateRef.current = authState;
+  }, [authState]);
+
+  // seq 리셋 on auth state change (C3)
+  useEffect(() => {
+    lastSeqRef.current = -1;
+  }, [authState]);
+
+  // 부트스트랩: auth_status 호출
+  useEffect(() => {
+    (async () => {
+      try {
+        const status = await invoke<AuthStatus>("auth_status");
+        setFirstRun(status.first_run);
+        setAuthState(status.logged_in ? "logged_in" : "logged_out");
+      } catch {
+        setAuthState("logged_out");
+      }
+    })();
+  }, []);
 
   const toggleTheme = () => {
     const next = !isDark;
@@ -123,15 +168,12 @@ function App() {
     invoke("update_tray", { pct, resetsAt }).catch(() => {});
   };
 
-  // 파일 읽기 (30초마다)
   const loadFile = useCallback(async () => {
     try {
       const result = await invoke<RateLimitData>("read_rate_limits");
       const fivePct = result.rate_limits?.five_hour?.used_percentage ?? 0;
       const sevenPct = result.rate_limits?.seven_day?.used_percentage ?? 0;
-      // 새 세션 시작 시 0%로 초기화되는 경우, 기존 데이터가 있으면 무시
       if (fivePct === 0 && sevenPct === 0 && appDataRef.current) return;
-      // API 데이터보다 파일이 더 최신이면 갱신
       if (appDataRef.current?.source === "api") {
         const apiTime = new Date(appDataRef.current.data.updated_at).getTime();
         const fileTime = new Date(result.updated_at).getTime();
@@ -140,7 +182,7 @@ function App() {
       const newData: AppData = { source: "file", data: result };
       appDataRef.current = newData;
       setDisplayData(newData);
-      setError(false);
+      setErrorState(null);
       const fh = result.rate_limits?.five_hour;
       const resetRaw = fh?.resets_at ?? fh?.reset_at;
       const resetsAt = resetRaw
@@ -152,34 +194,62 @@ function App() {
     }
   }, []);
 
-  // API 호출 (1분마다)
-  const loadApi = useCallback(async () => {
-    try {
-      const result = await invoke<UsageApiResponse>("fetch_usage_api");
-      const newData: AppData = { source: "api", data: result };
-      appDataRef.current = newData;
-      setDisplayData(newData);
-      setError(false);
-      updateTray(result.five_hour?.utilization ?? 0, result.five_hour?.resets_at ?? null);
-    } catch {
-      if (appDataRef.current) return; // 이전 데이터 유지
-      setError(true);
+  const handleError = useCallback((payload: any) => {
+    const mapped = mapError(payload);
+    if (mapped.kind === "token_missing" || mapped.kind === "token_expired") {
+      setAuthState("logged_out");
+      return;
     }
+    if (appDataRef.current) return;
+    setErrorState(mapped);
   }, []);
 
-  const refresh = useCallback(async () => {
-    await loadApi();
-    await loadFile();
-  }, [loadApi, loadFile]);
+  const lastForceRefreshAt = useRef(0);
+  const refresh = useCallback(() => {
+    const ts = Date.now();
+    if (ts - lastForceRefreshAt.current < 1000) return;
+    lastForceRefreshAt.current = ts;
+    invoke("force_refresh").catch(() => {});
+  }, []);
 
+  // Event listeners (C2 — guard by authStateRef)
   useEffect(() => {
     loadFile();
-    loadApi();
     const fileTimer = setInterval(loadFile, FILE_INTERVAL);
-    const apiTimer = setInterval(loadApi, API_INTERVAL);
+
+    let unlistenU: UnlistenFn | undefined;
+    let unlistenE: UnlistenFn | undefined;
+
+    (async () => {
+      unlistenU = await listen<UsageEnvelope>("usage-updated", (e) => {
+        if (authStateRef.current !== "logged_in") return;
+        if (e.payload.seq <= lastSeqRef.current) return;
+        lastSeqRef.current = e.payload.seq;
+        const newData: AppData = { source: "api", data: e.payload.data };
+        appDataRef.current = newData;
+        setDisplayData(newData);
+        setErrorState(null);
+      });
+      unlistenE = await listen<UsageError>("usage-error", (e) => {
+        if (authStateRef.current !== "logged_in") return;
+        handleError(e.payload);
+      });
+      const cached = await invoke<UsageEnvelope | null>("get_last_usage");
+      if (cached && authStateRef.current === "logged_in" && cached.seq > lastSeqRef.current) {
+        lastSeqRef.current = cached.seq;
+        const newData: AppData = { source: "api", data: cached.data };
+        appDataRef.current = newData;
+        setDisplayData(newData);
+      }
+      if (authStateRef.current === "logged_in") {
+        invoke("force_refresh").catch(() => {});
+      }
+    })();
+
     return () => {
       clearInterval(fileTimer);
-      clearInterval(apiTimer);
+      unlistenU?.();
+      unlistenE?.();
     };
   }, []);
 
@@ -188,17 +258,31 @@ function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // 화면 복귀(슬립 해제) 시 즉시 API 호출
+  // 화면 복귀(슬립 해제) 시 즉시 force_refresh
   useEffect(() => {
     const onWake = () => {
-      if (!document.hidden) {
-        loadApi();
-        loadFile();
+      if (!document.hidden && authStateRef.current === "logged_in") {
+        invoke("force_refresh").catch(() => {});
       }
     };
     document.addEventListener("visibilitychange", onWake);
     return () => document.removeEventListener("visibilitychange", onWake);
-  }, [loadApi, loadFile]);
+  }, []);
+
+  const handleAuthSuccess = (status: AuthStatus) => {
+    setFirstRun(status.first_run);
+    lastSeqRef.current = -1;
+    setAuthState("logged_in");
+    invoke("force_refresh").catch(() => {});
+  };
+
+  const handleLogout = () => {
+    lastSeqRef.current = -1;
+    appDataRef.current = null;
+    setDisplayData(null);
+    setErrorState(null);
+    setAuthState("logged_out");
+  };
 
   const getResetMs = (value: string | number | null | undefined): number | null => {
     if (value == null) return null;
@@ -245,8 +329,30 @@ function App() {
     return `${Math.floor(diff / 3600)}시간 전`;
   };
 
-  if (error) {
-    return <SetupScreen onRetry={refresh} />;
+  // Auth 라우팅
+  if (authState === "loading") {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <div className="text-center space-y-2">
+          <div className="w-6 h-6 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-xs text-muted-foreground">로딩 중...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (authState === "logged_out") {
+    return <AuthModal firstRun={firstRun} onSuccess={handleAuthSuccess} />;
+  }
+
+  // logged_in 경로
+  const showFullDiag =
+    errorState &&
+    (errorState.kind === "token_missing" || errorState.kind === "token_expired");
+  const showBanner = errorState && !showFullDiag;
+
+  if (showFullDiag) {
+    return <AuthModal firstRun={firstRun} onSuccess={handleAuthSuccess} />;
   }
 
   if (!displayData) {
@@ -289,7 +395,17 @@ function App() {
 
   return (
     <div className="min-h-screen p-6 max-w-md mx-auto select-none">
-      <h1 className="text-base font-bold mb-5">플랜 사용량 한도</h1>
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="text-base font-bold">플랜 사용량 한도</h1>
+        <LogoutButton onLogout={handleLogout} />
+      </div>
+
+      {showBanner && (
+        <ErrorBanner
+          state={errorState}
+          onCopy={() => navigator.clipboard.writeText(JSON.stringify(errorState, null, 2))}
+        />
+      )}
 
       <div className="space-y-5">
         <section>
