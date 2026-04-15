@@ -181,10 +181,13 @@ impl AuthStore {
     }
 
     pub async fn start_auth(&self) -> Result<AuthStartResult, AuthError> {
-        let mut pending = self.pending.lock().await;
-        if pending.is_some() {
-            return Err(AuthError::AlreadyPending);
+        // Exchange 중이면 거부 — exchange_code가 pending.take()를 하므로 충돌 방지
+        if self.exchanging.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(AuthError::ExchangeInProgress);
         }
+
+        // 기존 pending은 덮어쓰기 허용 — 사용자가 "로그인 시작"을 다시 누르면 fresh 세션
+        let mut pending = self.pending.lock().await;
 
         let (verifier, challenge) = oauth::generate_pkce_pair();
 
