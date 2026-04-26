@@ -2,8 +2,14 @@
 
 **Claude Code 사용량을 실시간으로 모니터링하는 macOS 데스크톱 앱**
 
-**어디서 Claude를 쓰든 한 자리에서 확인**:
-원격 서버에서 `claude` CLI를 돌리든, 다른 컴퓨터에서 작업하든, claude.ai 웹에서 쓰든 — 이 앱은 **Anthropic 서버 측 사용량을 직접 조회**하기 때문에 노트북을 열어두기만 해도 메뉴바에 최신 값이 뜹니다. 로컬 CLI가 돌고 있지 않아도 OK.
+## 어디서 Claude를 쓰든 한 자리에서 확인
+원격 서버에서 `claude` CLI를 돌리든, 
+
+다른 컴퓨터에서 작업하든, 
+
+claude.ai 웹에서 쓰든 
+
+— 이 앱은 **Anthropic 서버 측 사용량을 직접 조회**하기 때문에 노트북을 열어두기만 해도 메뉴바에 최신 값이 뜹니다. 로컬 CLI가 돌고 있지 않아도 OK.
 
 ![CC-usage Screenshot](screenshots/cc-usage-dark.png)
 
