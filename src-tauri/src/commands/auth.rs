@@ -434,6 +434,66 @@ pub async fn auth_logout(store: tauri::State<'_, AuthStore>) -> Result<(), AuthE
 }
 
 // ---------------------------------------------------------------------------
+// Account info — access token JWT payload에서 추출
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Serialize, Clone, Default)]
+pub struct AccountInfo {
+    pub email: Option<String>,
+    pub account_uuid: Option<String>,
+    pub organization_name: Option<String>,
+}
+
+fn extract_from_jwt(token: &str) -> Option<AccountInfo> {
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let payload_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(parts[1])
+        .ok()?;
+    let payload: serde_json::Value = serde_json::from_slice(&payload_bytes).ok()?;
+
+    let email = payload
+        .pointer("/account/email")
+        .or_else(|| payload.pointer("/user/email"))
+        .or_else(|| payload.get("email"))
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let account_uuid = payload
+        .pointer("/account/uuid")
+        .or_else(|| payload.pointer("/account/id"))
+        .or_else(|| payload.pointer("/user/uuid"))
+        .or_else(|| payload.pointer("/user/id"))
+        .or_else(|| payload.get("sub"))
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let organization_name = payload
+        .pointer("/organization/name")
+        .or_else(|| payload.get("organization_name"))
+        .or_else(|| payload.get("org_name"))
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    if email.is_none() && account_uuid.is_none() && organization_name.is_none() {
+        return None;
+    }
+    Some(AccountInfo {
+        email,
+        account_uuid,
+        organization_name,
+    })
+}
+
+#[command]
+pub async fn auth_account(
+    store: tauri::State<'_, AuthStore>,
+) -> Result<AccountInfo, AuthError> {
+    let token = store.get_valid_access_token().await?;
+    Ok(extract_from_jwt(&token).unwrap_or_default())
+}
+
+// ---------------------------------------------------------------------------
 // Shim — T2에서 제거 예정
 // ---------------------------------------------------------------------------
 

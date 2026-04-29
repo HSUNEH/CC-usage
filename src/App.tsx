@@ -58,6 +58,12 @@ type ErrorState =
 
 type AuthState = "loading" | "logged_out" | "logged_in";
 
+interface AccountInfo {
+  email: string | null;
+  account_uuid: string | null;
+  organization_name: string | null;
+}
+
 function mapError(err: any): ErrorState {
   const e = err as UsageError;
   if (typeof e === "string") {
@@ -134,6 +140,7 @@ function App() {
   // Auth state
   const [authState, setAuthState] = useState<AuthState>("loading");
   const [firstRun, setFirstRun] = useState(false);
+  const [account, setAccount] = useState<AccountInfo | null>(null);
   const authStateRef = useRef<AuthState>("loading");
   useEffect(() => {
     authStateRef.current = authState;
@@ -156,6 +163,17 @@ function App() {
       }
     })();
   }, []);
+
+  // 로그인 상태가 되면 계정 정보 로드
+  useEffect(() => {
+    if (authState !== "logged_in") {
+      setAccount(null);
+      return;
+    }
+    invoke<AccountInfo>("auth_account")
+      .then(setAccount)
+      .catch(() => setAccount(null));
+  }, [authState]);
 
   const toggleTheme = () => {
     const next = !isDark;
@@ -395,9 +413,14 @@ function App() {
 
   return (
     <div className="min-h-screen p-6 max-w-md mx-auto select-none">
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-1">
         <h1 className="text-base font-bold">플랜 사용량 한도</h1>
         <LogoutButton onLogout={handleLogout} />
+      </div>
+      <div className="text-xs text-muted-foreground mb-4 h-4 truncate" title={account?.email ?? account?.account_uuid ?? ""}>
+        {account?.email
+          ?? account?.organization_name
+          ?? (account?.account_uuid ? `계정 ${account.account_uuid.slice(0, 8)}…` : "")}
       </div>
 
       {showBanner && (

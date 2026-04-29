@@ -3,7 +3,7 @@
 
 mod commands;
 
-use commands::auth::{auth_exchange, auth_logout, auth_start, auth_status, AuthStore};
+use commands::auth::{auth_account, auth_exchange, auth_logout, auth_start, auth_status, AuthStore};
 use commands::usage::{
     fetch_usage_api, fetch_usage_data, force_refresh, get_last_usage, read_rate_limits,
     read_rate_limits_if_fresh, HttpClient, LastUsageCache, PollNotify, UsageApiResponse,
@@ -229,6 +229,7 @@ fn main() {
             auth_start,
             auth_exchange,
             auth_logout,
+            auth_account,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
